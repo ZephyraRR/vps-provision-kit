@@ -1,0 +1,17 @@
+---
+# People who may log in. Every one needs at least one SSH public key: the role refuses to turn password logins off otherwise (it would lock you out).
+# Example: [{ name: stefan, ssh_keys: ["ssh-ed25519 AAAA... stefan@laptop"], sudo_nopasswd: true }]
+linux_hardening_admin_users: []
+
+linux_hardening_ssh_port: 22
+# Who may reach SSH. Empty means "from anywhere" (still rate limited). Use your office / VPN addresses: ["203.0.113.0/24", "2001:db8::/32"]
+linux_hardening_ssh_allow_cidrs: []
+# Other TCP ports that must stay open (for example [443]).
+linux_hardening_extra_tcp_ports: []
+
+linux_hardening_firewall_apply: true
+linux_hardening_install_fail2ban: true
+linux_hardening_auto_updates: true
+linux_hardening_ssh_max_auth_tries: 3
+# Other accounts that must keep SSH access (for example the user Ansible connects with when it is not one of the admins).
+linux_hardening_ssh_extra_users: []

@@ -1,0 +1,19 @@
+---
+# Where RDP may be reached from. Empty is refused unless you also set windows_rdp_hardening_allow_from_anywhere: true (not recommended).
+windows_rdp_hardening_allowed_cidrs: []
+windows_rdp_hardening_allow_from_anywhere: false
+windows_rdp_hardening_port: 3389
+
+# Network Level Authentication: the user authenticates before a session is created, which blocks most unauthenticated attacks on the RDP stack.
+windows_rdp_hardening_require_nla: true
+windows_rdp_hardening_min_encryption_level: 3      # 3 = High
+windows_rdp_hardening_idle_timeout_minutes: 120    # disconnect idle sessions; 0 = never
+
+windows_rdp_hardening_lockout_threshold: 5     # bad passwords before the account locks
+windows_rdp_hardening_lockout_duration_minutes: 30
+windows_rdp_hardening_lockout_reset_minutes: 30
+windows_rdp_hardening_disable_guest: true
+
+windows_rdp_hardening_install_updates: true
+windows_rdp_hardening_update_categories: [SecurityUpdates, CriticalUpdates]
+windows_rdp_hardening_update_reboot: true

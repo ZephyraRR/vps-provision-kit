@@ -1,0 +1,17 @@
+#cloud-config
+# First-boot baseline. The full hardening is applied afterwards by the Ansible role linux_hardening.
+hostname: ${hostname}
+manage_etc_hosts: true
+package_update: true
+packages:
+  - python3
+  - ca-certificates
+write_files:
+  - path: /etc/ssh/sshd_config.d/00-first-boot.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+runcmd:
+  - [ systemctl, reload, ssh ]

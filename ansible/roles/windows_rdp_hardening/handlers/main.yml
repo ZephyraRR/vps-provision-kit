@@ -1,0 +1,6 @@
+---
+- name: Restart Remote Desktop services
+  ansible.windows.win_service:
+    name: TermService
+    force_dependent_services: true
+    state: restarted

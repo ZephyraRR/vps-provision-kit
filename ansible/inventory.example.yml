@@ -1,0 +1,26 @@
+---
+all:
+  children:
+    linux:
+      hosts:
+        vps-02:
+          ansible_host: 203.0.113.20
+      vars:
+        ansible_user: debian
+        linux_hardening_ssh_extra_users: [debian]
+        linux_hardening_ssh_allow_cidrs: ["198.51.100.0/24"]
+        linux_hardening_extra_tcp_ports: [443]
+        linux_hardening_admin_users:
+          - name: stefan
+            ssh_keys:
+              - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExample stefan@laptop"
+    windows:
+      hosts:
+        rdp-01:
+          ansible_host: 203.0.113.10
+      vars:
+        ansible_connection: winrm
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+        ansible_user: Administrator
+        windows_rdp_hardening_allowed_cidrs: ["198.51.100.0/24"]

@@ -1,0 +1,4 @@
+# Managed by Ansible (role linux_hardening). Do not edit by hand.
+{% for u in linux_hardening_admin_users %}
+{{ u.name }} ALL=(ALL) {{ 'NOPASSWD: ' if u.sudo_nopasswd | default(true) else '' }}ALL
+{% endfor %}

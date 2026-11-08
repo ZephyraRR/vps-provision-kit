@@ -1,0 +1,11 @@
+---
+- name: Harden Linux VPS hosts
+  hosts: linux
+  become: true
+  roles:
+    - linux_hardening
+
+- name: Harden Windows RDP hosts
+  hosts: windows
+  roles:
+    - windows_rdp_hardening

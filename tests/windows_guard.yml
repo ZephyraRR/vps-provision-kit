@@ -1,0 +1,8 @@
+---
+# Runs only the safety check of the Windows role (no Windows host needed).
+- name: Windows guard
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - windows_rdp_hardening

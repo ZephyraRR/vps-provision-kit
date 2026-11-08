@@ -1,0 +1,14 @@
+# Managed by Ansible (role linux_hardening). Do not edit by hand.
+Port {{ linux_hardening_ssh_port }}
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+AllowUsers {{ (linux_hardening_admin_users | map(attribute='name') | list + linux_hardening_ssh_extra_users) | join(' ') }}
+MaxAuthTries {{ linux_hardening_ssh_max_auth_tries }}
+LoginGraceTime 30
+X11Forwarding no
+AllowAgentForwarding no
+ClientAliveInterval 300
+ClientAliveCountMax 2

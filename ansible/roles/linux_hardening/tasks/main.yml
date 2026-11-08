@@ -1,0 +1,156 @@
+---
+- name: Refuse to run in a way that would lock the operator out
+  ansible.builtin.assert:
+    that:
+      - linux_hardening_admin_users | length > 0
+      - linux_hardening_admin_users | selectattr('ssh_keys', 'defined') | list | length == linux_hardening_admin_users | length
+      - linux_hardening_admin_users | map(attribute='ssh_keys', default=[]) | map('length') | min > 0
+      - linux_hardening_ssh_port | int > 0 and linux_hardening_ssh_port | int < 65536
+      - linux_hardening_admin_users | map(attribute='name') | unique | length == linux_hardening_admin_users | length
+    fail_msg: >-
+      linux_hardening_admin_users must list at least one user, each with at least one ssh key (password logins are turned off, so a user without a key could never get in),
+      names must be unique, and linux_hardening_ssh_port must be 1-65535.
+    quiet: true
+
+- name: Every admin user name and SSH key has a safe shape
+  ansible.builtin.assert:
+    that:
+      - item.name is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - item.ssh_keys | select('match', '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com) [A-Za-z0-9+/=]+( [^\r\n]*)?$') | list | length == item.ssh_keys | length
+    fail_msg: "{{ item.name }}: user names are lowercase letters, digits, '_' or '-'; every ssh key must be a single-line OpenSSH public key"
+    quiet: true
+  loop: "{{ linux_hardening_admin_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Every allowed CIDR is a CIDR
+  ansible.builtin.assert:
+    that:
+      - item is match('^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/([0-9]|[12][0-9]|3[0-2])$') or item is match('^[0-9a-fA-F:]+/([0-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$')
+    fail_msg: "'{{ item }}' is not a CIDR such as 203.0.113.0/24"
+    quiet: true
+  loop: "{{ linux_hardening_ssh_allow_cidrs }}"
+
+- name: Extra public ports are valid port numbers
+  ansible.builtin.assert:
+    that:
+      - item is number
+      - item | int == item
+      - item | int >= 1 and item | int <= 65535
+    fail_msg: "linux_hardening_extra_tcp_ports must be whole numbers from 1 to 65535, got '{{ item }}'"
+    quiet: true
+  loop: "{{ linux_hardening_extra_tcp_ports }}"
+
+- name: Packages
+  ansible.builtin.apt:
+    name: "{{ ['openssh-server', 'sudo', 'nftables', 'ca-certificates'] + (['unattended-upgrades'] if linux_hardening_auto_updates else []) + (['fail2ban'] if linux_hardening_install_fail2ban else []) }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Admin users exist, with locked passwords and sudo
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    password_lock: true
+    create_home: true
+  loop: "{{ linux_hardening_admin_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: .ssh directories
+  ansible.builtin.file:
+    path: "/home/{{ item.name }}/.ssh"
+    state: directory
+    owner: "{{ item.name }}"
+    group: "{{ item.name }}"
+    mode: "0700"
+  loop: "{{ linux_hardening_admin_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: The authorized_keys file holds exactly the keys in the inventory (a removed key stops working)
+  ansible.builtin.copy:
+    dest: "/home/{{ item.name }}/.ssh/authorized_keys"
+    content: "{{ item.ssh_keys | join('\n') }}\n"
+    owner: "{{ item.name }}"
+    group: "{{ item.name }}"
+    mode: "0600"
+  loop: "{{ linux_hardening_admin_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Sudo rules (passwords are locked, so key-only users need NOPASSWD unless you set sudo_nopasswd to false)
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: /etc/sudoers.d/90-hardening-admins
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Privilege separation directory (sshd -t needs it before the service has ever started)
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    mode: "0755"
+
+- name: The sshd hardening drop-in, checked with sshd itself before it is installed
+  ansible.builtin.template:
+    src: sshd_hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/bin/sh -c 'echo Include %s > /run/sshd/validate.conf && /usr/sbin/sshd -t -f /run/sshd/validate.conf'"
+  notify: Reload sshd
+
+- name: The nftables ruleset, checked with nft before it is installed
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/nft -c -f %s
+  notify: Reload nftables
+
+- name: The nftables service starts at boot
+  ansible.builtin.systemd:
+    name: nftables
+    enabled: true
+    state: started
+  when: linux_hardening_firewall_apply and ansible_service_mgr == 'systemd'
+
+- name: Automatic security updates
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    owner: root
+    group: root
+    mode: "0644"
+  when: linux_hardening_auto_updates
+
+- name: The fail2ban jail watches sshd
+  ansible.builtin.template:
+    src: fail2ban_sshd.local.j2
+    dest: /etc/fail2ban/jail.d/10-sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+  when: linux_hardening_install_fail2ban
+  notify: Restart fail2ban
+
+- name: Kernel network hardening
+  ansible.builtin.template:
+    src: sysctl.conf.j2
+    dest: /etc/sysctl.d/90-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl

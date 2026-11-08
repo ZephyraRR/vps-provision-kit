@@ -1,0 +1,84 @@
+---
+# Written against the documented modules of ansible.windows and community.windows. It is syntax-checked and linted in CI, but it has NOT been run
+# against a real Windows Server in this repository (see the README). Try it on a throwaway server first.
+- name: Refuse to open RDP to the whole internet by accident
+  ansible.builtin.assert:
+    that:
+      - windows_rdp_hardening_allowed_cidrs | length > 0 or windows_rdp_hardening_allow_from_anywhere | bool
+      - windows_rdp_hardening_port | int > 0 and windows_rdp_hardening_port | int < 65536
+    fail_msg: "Set windows_rdp_hardening_allowed_cidrs to the addresses that may use RDP, or set windows_rdp_hardening_allow_from_anywhere: true on purpose."
+    quiet: true
+  tags: [guard]
+
+- name: RDP is enabled
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server
+    name: fDenyTSConnections
+    data: 0
+    type: dword
+
+- name: RDP listener settings (NLA, encryption, idle timeout, port)
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: dword
+  loop:
+    - { name: UserAuthentication, data: "{{ 1 if windows_rdp_hardening_require_nla | bool else 0 }}" }
+    - { name: SecurityLayer, data: "{{ 2 if windows_rdp_hardening_require_nla | bool else 1 }}" }
+    - { name: MinEncryptionLevel, data: "{{ windows_rdp_hardening_min_encryption_level }}" }
+    - { name: PortNumber, data: "{{ windows_rdp_hardening_port }}" }
+    - { name: MaxIdleTime, data: "{{ windows_rdp_hardening_idle_timeout_minutes | int * 60000 }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Restart Remote Desktop services
+
+- name: The built-in rule that allows RDP from anywhere is off
+  community.windows.win_firewall_rule:
+    name: "{{ item }}"
+    enabled: false
+    state: present
+    action: allow
+    direction: in
+    protocol: tcp
+    localport: "3389"
+  loop:
+    - Remote Desktop - User Mode (TCP-In)
+  failed_when: false          # the rule does not exist on every image
+
+- name: RDP is allowed only from the listed addresses
+  community.windows.win_firewall_rule:
+    name: RDP restricted (managed by Ansible)
+    description: Managed by the windows_rdp_hardening role
+    localport: "{{ windows_rdp_hardening_port }}"
+    protocol: tcp
+    direction: in
+    action: allow
+    profiles: [domain, private, public]
+    remoteip: "{{ '*' if windows_rdp_hardening_allow_from_anywhere | bool and windows_rdp_hardening_allowed_cidrs | length == 0 else windows_rdp_hardening_allowed_cidrs | join(',') }}"
+    enabled: true
+    state: present
+
+- name: Account lockout policy
+  community.windows.win_security_policy:
+    section: System Access
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: LockoutBadCount, value: "{{ windows_rdp_hardening_lockout_threshold }}" }
+    - { key: LockoutDuration, value: "{{ windows_rdp_hardening_lockout_duration_minutes }}" }
+    - { key: ResetLockoutCount, value: "{{ windows_rdp_hardening_lockout_reset_minutes }}" }
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Guest account is disabled
+  ansible.windows.win_user:
+    name: Guest
+    account_disabled: true
+  when: windows_rdp_hardening_disable_guest | bool
+
+- name: Security and critical updates
+  ansible.windows.win_updates:
+    category_names: "{{ windows_rdp_hardening_update_categories }}"
+    reboot: "{{ windows_rdp_hardening_update_reboot }}"
+  when: windows_rdp_hardening_install_updates | bool

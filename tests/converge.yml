@@ -1,0 +1,8 @@
+---
+# Used by the container tests: runs the role against the container itself.
+- name: Converge
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - linux_hardening

@@ -1,0 +1,10 @@
+# Controller and target in one image: the tests run the playbook against localhost inside a Debian container.
+FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python3-pip ca-certificates sudo iproute2 procps \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir "ansible-core>=2.16" ansible-lint yamllint
+ENV PATH=/opt/venv/bin:$PATH
+RUN ansible-galaxy collection install ansible.windows community.windows
+WORKDIR /work
+CMD ["sleep", "infinity"]

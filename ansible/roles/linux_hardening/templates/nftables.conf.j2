@@ -1,0 +1,35 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role linux_hardening). Do not edit by hand.
+{% set v4 = linux_hardening_ssh_allow_cidrs | reject('search', ':') | list %}
+{% set v6 = linux_hardening_ssh_allow_cidrs | select('search', ':') | list %}
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority 0; policy drop;
+    ct state invalid drop
+    ct state established,related accept
+    iifname "lo" accept
+    ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 10/second accept
+    ip6 nexthdr icmpv6 icmpv6 type { echo-request, destination-unreachable, packet-too-big, time-exceeded, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } limit rate 10/second accept
+{% if linux_hardening_ssh_allow_cidrs | length == 0 %}
+    tcp dport {{ linux_hardening_ssh_port }} ct state new limit rate 30/minute burst 20 packets accept
+{% else %}
+{% if v4 %}
+    ip saddr { {{ v4 | join(', ') }} } tcp dport {{ linux_hardening_ssh_port }} ct state new limit rate 30/minute burst 20 packets accept
+{% endif %}
+{% if v6 %}
+    ip6 saddr { {{ v6 | join(', ') }} } tcp dport {{ linux_hardening_ssh_port }} ct state new limit rate 30/minute burst 20 packets accept
+{% endif %}
+{% endif %}
+{% for p in linux_hardening_extra_tcp_ports %}
+    tcp dport {{ p | int }} ct state new accept
+{% endfor %}
+  }
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+  }
+  chain output {
+    type filter hook output priority 0; policy accept;
+  }
+}
